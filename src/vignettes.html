@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Vignettes Workum</title>
+<style>body{margin:0;background:#fff;font:12px/1.4 monospace}#log{white-space:pre;padding:8px}canvas{display:block;border-bottom:1px solid #ddd}</style>
+<canvas id="c" width="480" height="360"></canvas>
+<div id="log"></div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+const P = new URLSearchParams(location.search);
+const base = P.get("base") || "", post = P.get("post") || "", files = (P.get("files") || "").split(",").filter(Boolean);
+const az0 = +(P.get("az") || 38), el0 = +(P.get("el") || 22);
+const W = 480, H = 360;
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("c"), antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(W, H); renderer.outputEncoding = THREE.sRGBEncoding;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xf4f5f7);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8e959c, 1.0));
+const sun = new THREE.DirectionalLight(0xffffff, 1.1); sun.position.set(3, 5, 4); scene.add(sun);
+const sun2 = new THREE.DirectionalLight(0xffffff, 0.45); sun2.position.set(-4, 2, -3); scene.add(sun2);
+const cam = new THREE.PerspectiveCamera(30, W / H, 0.01, 1e6);
+const loader = new THREE.GLTFLoader();
+const out = {}; const log = (s) => { document.getElementById("log").textContent += s + "\n"; };
+async function one(f) {
+  const gltf = await new Promise((res, rej) => loader.load(base + f, res, undefined, rej));
+  const obj = gltf.scene; scene.add(obj); obj.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj); const size = box.getSize(new THREE.Vector3()); const ctr = box.getCenter(new THREE.Vector3());
+  obj.position.sub(ctr); obj.updateMatrixWorld(true);
+  const r = size.length() / 2, d = r / Math.sin(THREE.MathUtils.degToRad(15)) * 1.02;
+  const az = THREE.MathUtils.degToRad(az0), el = THREE.MathUtils.degToRad(el0);
+  cam.position.set(d * Math.cos(el) * Math.sin(az), d * Math.sin(el), d * Math.cos(el) * Math.cos(az));
+  cam.near = d / 200; cam.far = d * 20; cam.updateProjectionMatrix(); cam.lookAt(0, 0, 0);
+  const s = r / 5; sun.position.set(3 * s, 5 * s, 4 * s); sun2.position.set(-4 * s, 2 * s, -3 * s);
+  renderer.render(scene, cam);
+  const blob = await new Promise(res => renderer.domElement.toBlob(res, "image/png"));
+  let up = null;
+  if (post) { try { up = (await fetch(post + f.replace(/\.[^.]+$/, "") + ".png", { method: "POST", body: blob })).status; } catch (e) { up = "ERR " + e.message; } }
+  scene.remove(obj);
+  out[f] = { x: +size.x.toFixed(3), y: +size.y.toFixed(3), z: +size.z.toFixed(3), up };
+  log(f + " " + JSON.stringify(out[f]));
+}
+(async () => {
+  for (const f of files) { try { await one(f); } catch (e) { out[f] = { error: String((e && e.message) || e) }; log(f + " ERREUR " + out[f].error); } }
+  window.__done = out; log("FIN");
+})();
+</script>
